@@ -25,6 +25,22 @@ uv sync
 uv run granian --interface asgi --host 0.0.0.0 --port 8000 --workers 1 main:app
 ```
 
+### WSGI / Serv00 部署
+
+如果目标环境是 Serv00 的 Python 站点（Passenger / WSGI），可直接使用仓库内的 WSGI 入口，不需要把业务代码改成 Flask 或同步视图。
+
+```bash
+/usr/local/bin/python3.12 -m pip install --user -r requirements-serv00.txt
+```
+
+- WSGI 入口文件：`passenger_wsgi.py`
+- 实际适配层：`wsgi.py`
+- 项目现已兼容 Python `3.12`
+- WSGI 入口会手动执行 FastAPI 启动逻辑，保证配置加载、Token 自动刷新和 `cf_refresh` 后台任务正常启动
+- FreeBSD / Serv00 上会自动跳过 `curl-cffi`，改用 `aiohttp` 兼容层；应用可启动，但浏览器指纹伪装能力会弱于原始 Linux/ASGI 部署
+- `/v1/function/imagine/ws` 是 WebSocket 路由，在 WSGI 下不可用；请改用 `/v1/function/imagine/sse`，以及 `/v1/function/imagine/start`、`/v1/function/imagine/stop`
+- 如果你必须保留 WebSocket，请改用 Serv00 的 `Proxy` 站点并在保留端口运行现有 ASGI 版本
+
 ### Docker Compose
 
 ```bash

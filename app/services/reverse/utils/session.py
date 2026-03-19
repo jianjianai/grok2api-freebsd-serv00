@@ -5,8 +5,7 @@ Resettable session wrapper for reverse requests.
 import asyncio
 from typing import Any, Iterable, Optional
 
-from curl_cffi.requests import AsyncSession
-from curl_cffi.const import CurlOpt
+from app.compat.curl_cffi import AsyncSession, CurlOpt
 
 from app.core.config import get_config
 from app.core.logger import logger

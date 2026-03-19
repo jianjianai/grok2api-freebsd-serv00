@@ -4,7 +4,7 @@ Reverse interface: rate limits.
 
 import orjson
 from typing import Any
-from curl_cffi.requests import AsyncSession
+from app.compat.curl_cffi import AsyncSession
 
 from app.core.logger import logger
 from app.core.config import get_config
@@ -70,7 +70,7 @@ class RateLimitsReverse:
 
                 if response.status_code != 200:
                     try:
-                        resp_text = response.text
+                        resp_text = await response.text()
                     except Exception:
                         resp_text = "N/A"
                     

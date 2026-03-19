@@ -5,7 +5,7 @@ Reverse interface: LiveKit token + WebSocket.
 import orjson
 from typing import Any, Dict
 from urllib.parse import urlencode
-from curl_cffi.requests import AsyncSession
+from app.compat.curl_cffi import AsyncSession
 
 from app.core.logger import logger
 from app.core.config import get_config
@@ -92,13 +92,13 @@ class LivekitTokenReverse:
                 )
 
                 if response.status_code != 200:
-                    body = response.text[:200]
+                    body = (await response.text())[:200]
                     logger.error(
                         f"LivekitTokenReverse: Request failed, {response.status_code}, body={body}"
                     )
                     raise UpstreamException(
                         message=f"LivekitTokenReverse: Request failed, {response.status_code}",
-                        details={"status": response.status_code, "body": response.text},
+                        details={"status": response.status_code, "body": body},
                     )
 
                 return response

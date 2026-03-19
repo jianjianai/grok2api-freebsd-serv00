@@ -8,7 +8,7 @@ import uuid
 from typing import Dict, List, Any, AsyncGenerator, AsyncIterable
 
 import orjson
-from curl_cffi.requests.errors import RequestsError
+from app.compat.curl_cffi import RequestsError
 
 from app.core.logger import logger
 from app.core.config import get_config

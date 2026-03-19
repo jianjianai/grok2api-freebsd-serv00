@@ -25,6 +25,22 @@ uv sync
 uv run granian --interface asgi --host 0.0.0.0 --port 8000 --workers 1 main:app
 ```
 
+### WSGI / Serv00
+
+If your target is a Serv00 Python site (Passenger / WSGI), you can deploy this repository with the built-in WSGI entrypoint instead of rewriting the app to Flask or sync views.
+
+```bash
+/usr/local/bin/python3.12 -m pip install --user -r requirements-serv00.txt
+```
+
+- WSGI entrypoint: `passenger_wsgi.py`
+- Adapter layer: `wsgi.py`
+- The project now supports Python `3.12`
+- The WSGI bootstrap runs the FastAPI startup logic manually, so config loading, token auto-refresh, and the `cf_refresh` background task still work
+- On FreeBSD / Serv00, `curl-cffi` is skipped and replaced with an `aiohttp` compatibility fallback; the app can boot, but browser impersonation is weaker than the original Linux/ASGI deployment
+- `/v1/function/imagine/ws` is a WebSocket endpoint and is not available under WSGI; use `/v1/function/imagine/sse` with `/v1/function/imagine/start` and `/v1/function/imagine/stop` instead
+- If you need WebSocket support, use a Serv00 `Proxy` site and run the existing ASGI app on a reserved port
+
 ### Docker Compose
 
 ```bash

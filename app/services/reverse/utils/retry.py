@@ -7,9 +7,9 @@ import inspect
 import random
 from typing import Callable, Any, Optional
 
-from curl_cffi import CurlError
-from curl_cffi.requests.exceptions import (
+from app.compat.curl_cffi import (
     ConnectionError,
+    CurlError,
     DNSError,
     ProxyError,
     SSLError,

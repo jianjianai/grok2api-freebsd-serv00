@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, AsyncIterable, Dict, List, Optional, Tuple
 
 import orjson
-from curl_cffi.requests.errors import RequestsError
+from app.compat.curl_cffi import RequestsError
 
 from app.core.config import get_config
 from app.core.exceptions import (

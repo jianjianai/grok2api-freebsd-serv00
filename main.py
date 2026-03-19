@@ -39,11 +39,11 @@ from app.api.v1.files import router as files_router  # noqa: E402
 from app.api.v1.models import router as models_router  # noqa: E402
 from app.api.v1.response import router as responses_router  # noqa: E402
 from app.services.token import get_scheduler  # noqa: E402
-from app.api.v1.admin import router as admin_router
-from app.api.v1.function import router as function_router
-from app.api.pages import router as pages_router
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from app.api.v1.admin import router as admin_router  # noqa: E402
+from app.api.v1.function import router as function_router  # noqa: E402
+from app.api.pages import router as pages_router  # noqa: E402
+from fastapi.responses import RedirectResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 # 初始化日志
 setup_logging(
@@ -51,65 +51,113 @@ setup_logging(
 )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    # 1. 注册服务默认配置
-    from app.core.config import config, register_defaults
-    from app.services.grok.defaults import get_grok_defaults
+async def startup_app(app: FastAPI) -> None:
+    """启动应用运行时（ASGI lifespan / WSGI 手动初始化共用）。"""
+    if getattr(app.state, "runtime_started", False):
+        return
 
-    register_defaults(get_grok_defaults())
+    scheduler = None
+    refresh_enabled = False
 
-    # 2. 加载配置
-    await config.ensure_loaded()
+    try:
+        # 1. 注册服务默认配置
+        from app.core.config import config, register_defaults
+        from app.services.grok.defaults import get_grok_defaults
 
-    # 3. 启动服务显示
-    logger.info("Starting Grok2API...")
-    logger.info(f"Platform: {platform.system()} {platform.release()}")
-    logger.info(f"Python: {sys.version.split()[0]}")
+        register_defaults(get_grok_defaults())
 
-    # 4. 启动 Token 刷新调度器
-    refresh_enabled = get_config("token.auto_refresh", True)
-    if refresh_enabled:
-        basic_interval = get_config("token.refresh_interval_hours", 8)
-        super_interval = get_config("token.super_refresh_interval_hours", 2)
-        interval = min(basic_interval, super_interval)
-        scheduler = get_scheduler(interval)
-        scheduler.start()
+        # 2. 加载配置
+        await config.ensure_loaded()
 
-    # 5. 启动 cf_clearance 自动刷新
-    #    环境变量 FLARESOLVERR_URL 会作为初始值写入配置（兼容旧部署方式）
-    _flaresolverr_env = os.getenv("FLARESOLVERR_URL", "")
-    if _flaresolverr_env and not get_config("proxy.flaresolverr_url"):
-        await config.update({
-            "proxy": {
-                "enabled": True,
-                "flaresolverr_url": _flaresolverr_env,
-                "refresh_interval": int(os.getenv("CF_REFRESH_INTERVAL", "600")),
-                "timeout": int(os.getenv("CF_TIMEOUT", "60")),
-            }
-        })
+        # 3. 启动服务显示
+        logger.info("Starting Grok2API...")
+        logger.info(f"Platform: {platform.system()} {platform.release()}")
+        logger.info(f"Python: {sys.version.split()[0]}")
 
-    from app.services.cf_refresh import start as cf_refresh_start
-    cf_refresh_start()
+        # 4. 启动 Token 刷新调度器
+        refresh_enabled = get_config("token.auto_refresh", True)
+        if refresh_enabled:
+            basic_interval = get_config("token.refresh_interval_hours", 8)
+            super_interval = get_config("token.super_refresh_interval_hours", 2)
+            interval = min(basic_interval, super_interval)
+            scheduler = get_scheduler(interval)
+            scheduler.start()
 
-    logger.info("Application startup complete.")
-    yield
+        # 5. 启动 cf_clearance 自动刷新
+        #    环境变量 FLARESOLVERR_URL 会作为初始值写入配置（兼容旧部署方式）
+        _flaresolverr_env = os.getenv("FLARESOLVERR_URL", "")
+        if _flaresolverr_env and not get_config("proxy.flaresolverr_url"):
+            await config.update({
+                "proxy": {
+                    "enabled": True,
+                    "flaresolverr_url": _flaresolverr_env,
+                    "refresh_interval": int(os.getenv("CF_REFRESH_INTERVAL", "600")),
+                    "timeout": int(os.getenv("CF_TIMEOUT", "60")),
+                }
+            })
 
-    # 关闭
+        from app.services.cf_refresh import start as cf_refresh_start
+
+        cf_refresh_start()
+
+        app.state.token_refresh_enabled = refresh_enabled
+        app.state.token_scheduler = scheduler
+        app.state.cf_refresh_started = True
+        app.state.runtime_started = True
+
+        logger.info("Application startup complete.")
+    except Exception:
+        if scheduler is not None:
+            scheduler.stop()
+
+        try:
+            from app.services.cf_refresh import stop as cf_refresh_stop
+
+            cf_refresh_stop()
+        except Exception:
+            pass
+
+        app.state.token_refresh_enabled = False
+        app.state.token_scheduler = None
+        app.state.cf_refresh_started = False
+        app.state.runtime_started = False
+        raise
+
+
+async def shutdown_app(app: FastAPI) -> None:
+    """关闭应用运行时（ASGI lifespan / WSGI 手动初始化共用）。"""
+    if not getattr(app.state, "runtime_started", False):
+        return
+
     logger.info("Shutting down Grok2API...")
 
-    from app.services.cf_refresh import stop as cf_refresh_stop
-    cf_refresh_stop()
-
     from app.core.storage import StorageFactory
+    from app.services.cf_refresh import stop as cf_refresh_stop
+
+    if getattr(app.state, "cf_refresh_started", False):
+        cf_refresh_stop()
 
     if StorageFactory._instance:
         await StorageFactory._instance.close()
 
-    if refresh_enabled:
-        scheduler = get_scheduler()
+    scheduler = getattr(app.state, "token_scheduler", None)
+    if getattr(app.state, "token_refresh_enabled", False) and scheduler is not None:
         scheduler.stop()
+
+    app.state.token_refresh_enabled = False
+    app.state.token_scheduler = None
+    app.state.cf_refresh_started = False
+    app.state.runtime_started = False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    await startup_app(app)
+    try:
+        yield
+    finally:
+        await shutdown_app(app)
 
 
 def create_app() -> FastAPI:
@@ -118,6 +166,10 @@ def create_app() -> FastAPI:
         title="Grok2API",
         lifespan=lifespan,
     )
+    app.state.runtime_started = False
+    app.state.token_refresh_enabled = False
+    app.state.token_scheduler = None
+    app.state.cf_refresh_started = False
 
     # CORS 配置
     app.add_middleware(
@@ -170,7 +222,7 @@ def create_app() -> FastAPI:
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon():
         return RedirectResponse(url="/static/common/img/favicon/favicon.ico")
-    
+
     # 健康检查接口（用于 Render、服务器保活检测等）
     @app.get("/health")
     def health():
@@ -179,7 +231,7 @@ def create_app() -> FastAPI:
         """
         return {"status": "ok"}
 
-    return app    
+    return app
 
 
 app = create_app()

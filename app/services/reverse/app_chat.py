@@ -5,7 +5,7 @@ Reverse interface: app chat conversations.
 import orjson
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from curl_cffi.requests import AsyncSession
+from app.compat.curl_cffi import AsyncSession
 
 from app.core.logger import logger
 from app.core.config import get_config
