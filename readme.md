@@ -27,17 +27,101 @@ uv run granian --interface asgi --host 0.0.0.0 --port 8000 --workers 1 main:app
 
 ### WSGI / Serv00 部署
 
-如果目标环境是 Serv00 的 Python 站点（Passenger / WSGI），可直接使用仓库内的 WSGI 入口，不需要把业务代码改成 Flask 或同步视图。
+如果目标环境是 Serv00 的 Python 站点（Passenger / WSGI），可以直接使用仓库内的 WSGI 入口，不需要把业务代码改成 Flask 或同步视图。
+
+#### 1. 在 Serv00 面板创建 Python 站点
+
+- Python 版本选择 `3.12`
+- 站点根目录通常类似：`/usr/home/<user>/domains/<domain>/public_python`
+- 仓库内已包含 Passenger 默认入口文件 `passenger_wsgi.py`
+
+#### 2. 上传或拉取项目代码到站点目录
 
 ```bash
-/usr/local/bin/python3.12 -m pip install --user -r requirements-serv00.txt
+cd /usr/home/<user>/domains/<domain>/public_python
+git clone https://github.com/chenyme/grok2api .
 ```
+
+如果目录不是空的，可以先把仓库拉到别处，再同步文件进去。
+
+#### 3. 创建虚拟环境并安装依赖
+
+```bash
+/usr/local/bin/python3.12 -m venv /usr/home/<user>/venvs/grok2api
+/usr/home/<user>/venvs/grok2api/bin/pip install --upgrade pip
+/usr/home/<user>/venvs/grok2api/bin/pip install -r requirements-serv00.txt
+```
+
+如果你需要远端存储，请继续安装对应驱动：
+
+```bash
+# MySQL
+/usr/home/<user>/venvs/grok2api/bin/pip install sqlalchemy greenlet aiomysql
+
+# PostgreSQL
+/usr/home/<user>/venvs/grok2api/bin/pip install sqlalchemy greenlet asyncpg
+
+# Redis
+/usr/home/<user>/venvs/grok2api/bin/pip install redis
+```
+
+#### 4. 写入 `.env`
+
+最小可运行配置：
+
+```bash
+cat > /usr/home/<user>/domains/<domain>/public_python/.env <<'EOF'
+LOG_LEVEL=INFO
+SERVER_STORAGE_TYPE=local
+SERVER_STORAGE_URL=
+EOF
+```
+
+如果要使用 MySQL 持久化，推荐直接这样写：
+
+```bash
+cat > /usr/home/<user>/domains/<domain>/public_python/.env <<'EOF'
+LOG_LEVEL=INFO
+SERVER_STORAGE_TYPE=mysql
+SERVER_STORAGE_URL=mysql+aiomysql://user:password@host:3306/db?charset=utf8mb4
+EOF
+```
+
+> 常见 Serv00 MySQL 连接串格式：
+> `mysql+aiomysql://<db_user>:<db_password>@<mysql_host>/<db_name>?charset=utf8mb4`
+>
+> 如果数据库要求 TLS，可以在连接串后追加 `sslmode=require`。
+>
+> 如果你从 `local` 切换到 MySQL / PostgreSQL / Redis，请在首次启动前确认是否保留本地文件：
+>
+> - 保留 `data/token.json` 与 `data/config.toml`：远端存储为空时，应用会自动把本地数据导入远端
+> - 删除这两个文件：远端存储会从空表开始
+
+#### 5. 重启站点
+
+```bash
+devil www restart <domain>
+```
+
+#### 6. 本机验证站点是否已启动
+
+```bash
+curl -i -H "Host: <domain>" http://127.0.0.1/health
+```
+
+如果返回 `200 OK` 与 `{"status":"ok"}`，说明 Passenger 已正确加载应用。
+
+#### 7. 域名解析
+
+- 将你的域名 `A` 记录指向 Serv00 分配的服务器 IP
+- 等待 DNS 生效后，再通过 `https://<domain>` 访问
+
+#### 8. Serv00 / WSGI 注意事项
 
 - WSGI 入口文件：`passenger_wsgi.py`
 - 实际适配层：`wsgi.py`
-- 项目现已兼容 Python `3.12`
-- WSGI 入口会手动执行 FastAPI 启动逻辑，保证配置加载、Token 自动刷新和 `cf_refresh` 后台任务正常启动
-- FreeBSD / Serv00 上会自动跳过 `curl-cffi`，改用 `aiohttp` 兼容层；应用可启动，但浏览器指纹伪装能力会弱于原始 Linux/ASGI 部署
+- WSGI 启动时会手动执行 FastAPI 启动逻辑，保证配置加载、Token 自动刷新和 `cf_refresh` 后台任务正常启动
+- FreeBSD / Serv00 上会自动跳过 `curl-cffi`，改用 `aiohttp` 兼容层；应用可启动，但浏览器指纹伪装能力会弱于原始 Linux / ASGI 部署
 - `/v1/function/imagine/ws` 是 WebSocket 路由，在 WSGI 下不可用；请改用 `/v1/function/imagine/sse`，以及 `/v1/function/imagine/start`、`/v1/function/imagine/stop`
 - 如果你必须保留 WebSocket，请改用 Serv00 的 `Proxy` 站点并在保留端口运行现有 ASGI 版本
 
