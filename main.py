@@ -23,7 +23,7 @@ env_file = BASE_DIR / ".env"
 if env_file.exists():
     load_dotenv(env_file)
 
-from fastapi import FastAPI, Request  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi import Depends  # noqa: E402
 
@@ -31,7 +31,11 @@ from app.core.auth import verify_api_key  # noqa: E402
 from app.core.config import config, get_config  # noqa: E402
 from app.core.logger import logger, setup_logging  # noqa: E402
 from app.core.exceptions import register_exception_handlers  # noqa: E402
-from app.core.response_middleware import ResponseLoggerMiddleware  # noqa: E402
+from app.core.response_middleware import (  # noqa: E402
+    EnsureConfigLoadedMiddleware,
+    ResponseLoggerMiddleware,
+    SSEHeadersMiddleware,
+)
 from app.api.v1.chat import router as chat_router  # noqa: E402
 from app.api.v1.image import router as image_router  # noqa: E402
 from app.api.v1.video import router as video_router  # noqa: E402
@@ -180,13 +184,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 请求日志和 ID 中间件
+    # 原生 ASGI 中间件，避免干扰流式 SSE 输出
     app.add_middleware(ResponseLoggerMiddleware)
-
-    @app.middleware("http")
-    async def ensure_config_loaded(request: Request, call_next):
-        await config.ensure_loaded()
-        return await call_next(request)
+    app.add_middleware(EnsureConfigLoadedMiddleware)
+    app.add_middleware(SSEHeadersMiddleware)
 
     # 注册异常处理器
     register_exception_handlers(app)
